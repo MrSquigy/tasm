@@ -2,7 +2,7 @@
 
 import argparse
 from sys import exit
-from typing import Callable, Dict, Final, List
+from typing import Callable, Final
 import os
 
 parser = argparse.ArgumentParser(description="Assemble tasm files for toy-machine.")
@@ -11,7 +11,7 @@ parser.add_argument(
     "-o", type=str, dest="output", help="Name of the output file", nargs=1,
 )
 
-register_reference: Final[Dict[str, int]] = {
+register_reference: Final[dict[str, int]] = {
     "AC": 0,
     "DR": 1,
     "CR": 2,
@@ -25,14 +25,14 @@ make_const = lambda val, bits: format(int(val), f"0{bits}b")
 tense = lambda num: "were" if num > 1 or num <= 0 else "was"
 
 
-def check_args(instr: str, args: List[str], required: int) -> None:
+def check_args(instr: str, args: list[str], required: int) -> None:
     if (l := len(args)) != required:
         raise SyntaxError(
             f"{instr} instruction requires {required} arguments, but {l} {tense(l)} supplied."
         )
 
 
-def add(args: List[str]) -> str:
+def add(args: list[str]) -> str:
     check_args("add", args, required=2)
     code = "0b0001"
 
@@ -70,7 +70,7 @@ def add(args: List[str]) -> str:
     return code
 
 
-def move(args: List[str]) -> str:
+def move(args: list[str]) -> str:
     check_args("move", args, required=2)
     code = "0b000"
 
@@ -118,7 +118,7 @@ def move(args: List[str]) -> str:
     return code
 
 
-instruction_reference: Dict[str, Callable] = {
+instruction_reference: dict[str, Callable[[list[str]], str]] = {
     "add": add,
     "mov": move,
 }
@@ -128,8 +128,8 @@ source_name = args.source[0]
 output_name = args.output[0] if args.output is not None else source_name[:-5]
 output_name = os.path.join("build", output_name)
 human_name = output_name.split(os.path.sep)[-1]
-source: List[str]
-program_code: List[str] = []
+source: list[str]
+program_code: list[str] = []
 
 if not (os.path.exists("build") and os.path.isdir("build")):
     os.mkdir("build")
