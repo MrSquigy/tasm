@@ -11,6 +11,9 @@ parser.add_argument(
     "-o", type=str, dest="output", help="Name of the output file", nargs=1,
 )
 
+WORD_SIZE: Final[int] = 32
+MEM_ADDR_BITS: Final[int] = 10
+
 register_reference: Final[dict[str, int]] = {
     "AC": 0,
     "DR": 1,
@@ -19,10 +22,31 @@ register_reference: Final[dict[str, int]] = {
     "IR": 4,
 }
 
-find_register = lambda name: format(register_reference[name], "03b")
-find_memory = lambda addr, bits: format(int(addr, 16), f"0{bits}b")
-make_const = lambda val, bits: format(int(val), f"0{bits}b")
 tense = lambda num: "were" if num > 1 or num <= 0 else "was"
+
+
+def fmt_const(data: str) -> str:
+    c = bin(int(data))[2:]
+    if (l := len(c)) > WORD_SIZE:
+        raise SyntaxError(
+            f"maximum data size is {WORD_SIZE} bits, however {data} requires {l} bits."
+        )
+
+    return c
+
+
+def fmt_mem(addr: str) -> str:
+    addr_i = int(addr, 16)
+    if addr_i >= (a := 2 ** MEM_ADDR_BITS):
+        raise SyntaxError(
+            f"maximum memory address is {a - 1}, however address {addr_i} is referenced."
+        )
+
+    return format(addr_i, f"0{MEM_ADDR_BITS}b")
+
+
+def fmt_reg(register: str) -> str:
+    return format(register_reference[register], "03b")
 
 
 def check_args(instr: str, args: list[str], required: int) -> None:
@@ -32,22 +56,38 @@ def check_args(instr: str, args: list[str], required: int) -> None:
         )
 
 
+def assemble_instruction(opcode: str, first_param: str, second_param: str) -> str:
+    code = opcode + first_param
+
+    extra_bits = len(opcode) + len(first_param) + len(second_param) - WORD_SIZE - 2
+    if extra_bits > 0:
+        code = "0b111111" + first_param  # Multiline reserved opcode
+        code += second_param[:-extra_bits]
+        padded_bits = WORD_SIZE - len(opcode) - extra_bits + 2
+        remainder = "0" * padded_bits + second_param[-extra_bits:]
+        code += "\n" + opcode + remainder
+    elif extra_bits < 0:
+        code += "0" * (extra_bits * -1) + second_param
+    else:
+        code += second_param
+
+    return code
+
+
 def add(args: list[str]) -> str:
     check_args("add", args, required=2)
-    code = "0b0001"
+    code: str
 
     if args[0].upper() in register_reference:
-        reg = find_register(args[0].upper())
+        reg = fmt_reg(args[0].upper())
         if args[1].isnumeric():
             # add_reg_const
-            code += "01"
-            code += reg
-            code += make_const(args[1], 23)
+            code = "0b000101"
+            code = assemble_instruction(code, reg, fmt_const(args[1]))
         elif "x" in args[1]:
             # add_reg_mem
-            code += "10"
-            code += reg
-            code += find_memory(args[1], 23)
+            code = "0b000110"
+            code = assemble_instruction(code, reg, fmt_mem(args[1]))
         else:
             raise SyntaxError(
                 "add instruction can only add a constant value or a value from memory when storing in a register."
@@ -55,9 +95,9 @@ def add(args: list[str]) -> str:
     elif "x" in args[0]:
         if args[1].upper() in register_reference:
             # add_mem_reg
-            code += "11"
-            code += find_memory(args[0], 23)
-            code += find_register(args[1].upper())
+            code = "0b000111"
+            reg = fmt_reg(args[1].upper())
+            code = assemble_instruction(code, fmt_mem(args[0]), reg)
         else:
             raise SyntaxError(
                 "add instruction can only add a value from a register when storing in a memory location."
@@ -72,20 +112,18 @@ def add(args: list[str]) -> str:
 
 def move(args: list[str]) -> str:
     check_args("move", args, required=2)
-    code = "0b000"
+    code: str
 
     if args[0].upper() in register_reference:
-        reg = find_register(args[0].upper())
+        reg = fmt_reg(args[0].upper())
         if args[1].isnumeric():
             # move_reg_const
-            code += "000"
-            code += reg
-            code += make_const(args[1], 23)
+            code = "0b000000"
+            code = assemble_instruction(code, reg, fmt_const(args[1]))
         elif "x" in args[1]:
             # move_reg_mem
-            code += "001"
-            code += reg
-            code += find_memory(args[1], 23)
+            code = "0b000001"
+            code = assemble_instruction(code, reg, fmt_mem(args[1]))
         else:
             raise SyntaxError(
                 "move instruction only allows to store a constant value or a value from memory in a register."
@@ -93,19 +131,18 @@ def move(args: list[str]) -> str:
     elif "x" in args[0]:
         if args[1].isnumeric():
             # move_mem_const
-            code += "010"
-            code += find_memory(args[0], 10)
-            code += make_const(args[1], 16)
+            code = "0b000010"
+            code = assemble_instruction(code, fmt_mem(args[0]), fmt_const(args[1]))
         elif "x" in args[1]:
             # move_mem_mem
-            code += "011"
-            code += find_memory(args[0], 13)
-            code += find_memory(args[1], 13)
+            code = "0b000011"
+            code = assemble_instruction(code, fmt_mem(args[0]), fmt_mem(args[1]))
         elif args[1].upper() in register_reference:
             # move_mem_reg
-            code += "100"
-            code += find_memory(args[0], 23)
-            code += find_register(args[1].upper())
+            code = "0b000100"
+            code = assemble_instruction(
+                code, fmt_mem(args[0]), fmt_reg(args[1].upper())
+            )
         else:
             raise SyntaxError(
                 "move instruction only allows to store: a constant value; a value from memory; or a value from a register, in memory."
